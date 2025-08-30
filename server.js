@@ -96,6 +96,92 @@ app.get('/health', (req, res) => {
     });
 });
 
+// Database status endpoint
+app.get('/api/database/status', (req, res) => {
+    const fs = require('fs');
+    const path = require('path');
+
+    // Verificar si existe el archivo de base de datos
+    const dbPath = path.join(__dirname, 'database.sqlite');
+    const dbExists = fs.existsSync(dbPath);
+
+    if (!dbExists) {
+        return res.status(500).json({
+            status: 'ERROR',
+            message: 'Base de datos no encontrada',
+            database: {
+                exists: false,
+                path: dbPath
+            }
+        });
+    }
+
+    // Obtener información del archivo
+    const stats = fs.statSync(dbPath);
+    const fileSize = stats.size;
+
+    // Verificar tablas
+    db.all("SELECT name FROM sqlite_master WHERE type='table'", [], (err, tables) => {
+        if (err) {
+            return res.status(500).json({
+                status: 'ERROR',
+                message: 'Error al consultar tablas',
+                error: err.message
+            });
+        }
+
+        // Contar registros en cada tabla
+        let tableStats = [];
+        let completedQueries = 0;
+
+        if (tables.length === 0) {
+            return res.json({
+                status: 'OK',
+                message: 'Base de datos existe pero no tiene tablas',
+                database: {
+                    exists: true,
+                    path: dbPath,
+                    size: `${fileSize} bytes`,
+                    tables: []
+                }
+            });
+        }
+
+        tables.forEach(table => {
+            db.get(`SELECT COUNT(*) as count FROM ${table.name}`, [], (err, result) => {
+                if (err) {
+                    tableStats.push({
+                        name: table.name,
+                        status: 'ERROR',
+                        error: err.message
+                    });
+                } else {
+                    tableStats.push({
+                        name: table.name,
+                        status: 'OK',
+                        records: result.count
+                    });
+                }
+
+                completedQueries++;
+                if (completedQueries === tables.length) {
+                    res.json({
+                        status: 'OK',
+                        message: 'Base de datos verificada correctamente',
+                        database: {
+                            exists: true,
+                            path: dbPath,
+                            size: `${fileSize} bytes`,
+                            tables: tableStats
+                        },
+                        timestamp: new Date().toISOString()
+                    });
+                }
+            });
+        });
+    });
+});
+
 // RUTAS PARA USUARIOS
 
 // GET /api/users - Obtener todos los usuarios
